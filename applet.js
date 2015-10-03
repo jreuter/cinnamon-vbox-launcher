@@ -1,6 +1,7 @@
 const Applet = imports.ui.applet
 const GLib = imports.gi.GLib
 const Gtk = imports.gi.Gtk
+const St = imports.gi.St;
 const Lang = imports.lang
 const PopupMenu = imports.ui.popupMenu
 const Settings = imports.ui.settings
@@ -11,7 +12,9 @@ const ICON = "virtualbox"
 
 const CMD_VBOX = "virtualbox"
 const CMD_VBOX_VM = CMD_VBOX + " --startvm "
+const CMD_VBOX_CONTROL_VM = CMD_VBOX + " --controlvm "
 const CMD_VBOX_LIST = "vboxmanage list vms"
+const CMD_VBOX_LIST_RUNNING = "vboxmanage list runningvms"
 
 const CMD_VMPLAYER = "vmplayer"
 const VMWARE_DIR = GLib.get_home_dir() + "/vmware"
@@ -38,7 +41,7 @@ MyApplet.prototype = {
 
     try {
       this.set_applet_icon_name(ICON)
-      
+
       this.menuManager = new PopupMenu.PopupMenuManager(this)
       this.menu = new Applet.AppletPopupMenu(this, orientation)
       this.menuManager.addMenu(this.menu)
@@ -54,7 +57,7 @@ MyApplet.prototype = {
       global.logError(UUID + "::_init: " + e)
     }
   }
-  
+
   // configuration via context menu is automatically provided in Cinnamon 2.0+
 , settingsApiCheck: function() {
     const Config = imports.misc.config
@@ -78,7 +81,7 @@ MyApplet.prototype = {
   // determine which VM programs are installed
 , checkPrograms: function() {
     for (let i = 0; i < PROGRAMS.length; i++) {
-      let p = PROGRAMS[i] 
+      let p = PROGRAMS[i]
       INSTALLED_PROGRAMS[p] = false
       try {
         let [res, list, err, status] = GLib.spawn_command_line_sync("which " + p)
@@ -98,8 +101,18 @@ MyApplet.prototype = {
   }
 
 , addLauncher: function(label, callback) {
-    let i = new PopupMenu.PopupMenuItem(label)
+    let i = new PopupMenu.PopupSwitchMenuItem(label, false)
     i.connect(SIGNAL_ACTIVATE, Lang.bind(this, callback))
+    this.menu.addMenuItem(i)
+  }
+
+, addDetails: function(label, callback, params) {
+    // let i = new PopupMenu.PopupMenuItem(label)
+    let params = params || { };
+    params.style_class = 'popup-subtitle-menu-item';
+    let i = new PopupMenu.PopupSwitchMenuItem(label, true, params);
+    i.connect(SIGNAL_PAUSE, Lang.bind(this, callback))
+
     this.menu.addMenuItem(i)
   }
 
@@ -132,12 +145,19 @@ MyApplet.prototype = {
       return
 
     let [res, list, err, status] = GLib.spawn_command_line_sync(CMD_VBOX_LIST)
+    let [res, running, err, status] = GLib.spawn_command_line_sync(CMD_VBOX_LIST_RUNNING)
     if (list.length != 0) {
       let machines = list.toString().split("\n")
+      global.log(running.toString())
+      let running_machines = running.toString().split("\n")
       for (let i = 0; i < machines.length; i++) {
         let machine = machines[i]
         if (machine == "") continue
-        this.addVboxImage(machine)
+        if (running_machines.indexOf(machine) == -1) {
+          this.addVboxImage(machine)
+        } else {
+          this.addRunningImage(machine)
+        }
       }
     }
   }
@@ -147,6 +167,13 @@ MyApplet.prototype = {
     let name = info[0].replace('"', '')
     let id = info[1].replace('}', '')
     this.addLauncher(name, Lang.bind(this, function() { this.startVboxImage(id) }))
+  }
+
+, addRunningImage: function(instance) {
+    let info = instance.split('" {')
+    let name = info[0].replace('"', '')
+    let id = info[1].replace('}', '')
+    this.addDetails(name, Lang.bind(this, function() { this.pauseVboxImage(id) }))
   }
 
   // add menu items for all VMWare Player images
@@ -200,11 +227,15 @@ MyApplet.prototype = {
     }
     this.addUpdater()
   }
-  
+
 , startVboxImage: function(id) {
     Util.spawnCommandLine(CMD_VBOX_VM + id)
   }
-  
+
+, pauseVboxImage: function(id) {
+    Util.spawnCommandLine(CMD_VBOX_CONTROL_VM + id + " pause")
+  }
+
 , startVbox: function() {
     Util.spawnCommandLine(CMD_VBOX)
   }
@@ -223,7 +254,7 @@ MyApplet.prototype = {
     }
     this.menu.toggle()
   }
-  
+
 , onSwitchAutoUpdate: function() {
     if (!this[AUTOUPDATE]) {
       this.updateMenu() // Needed to make update button reappear if setting switched to off
