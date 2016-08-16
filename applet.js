@@ -13,6 +13,11 @@ const CMD_VBOX = "virtualbox"
 const CMD_VBOX_VM = CMD_VBOX + " --startvm "
 const CMD_VBOX_LIST = "vboxmanage list vms"
 
+// Added by Jarrod
+const CMD_VBOX_DETAILS = "/home/jarrod/.local/share/cinnamon/applets/vboxlauncher@mockturtl/get_vms.sh"
+//const CMD_VBOX_DETAILS = "vboxmanage list vms -l"
+// | grep -e ^Name: -e ^State -e ^UUID"
+
 const CMD_VMPLAYER = "vmplayer"
 const VMWARE_DIR = GLib.get_home_dir() + "/vmware"
 const CMD_VMPLAYER_LIST = "find " + VMWARE_DIR + " -iname *.vmx"
@@ -24,6 +29,43 @@ const SIGNAL_ACTIVATE = "activate"
 
 const KEY_UPDATE = "autoUpdate"
 const AUTOUPDATE = "_" + KEY_UPDATE
+
+function VirtualMachine() {
+  this._init.apply(this, arguments);
+}
+
+VirtualMachine.prototype = {
+  _init: function(label, id, state) {
+    global.log("initializing VM object");
+    this._label = label;
+    this._id = id;
+    this._state = state;
+  },
+
+  getLabel: function() {
+    return this._label;
+  },
+
+  getId: function() {
+    return this._id;
+  },
+
+  getState: function() {
+    return this._state;
+  },
+
+  toggleMachine: function() {
+    if (this._state == "running") {
+      // Check setting and pause/power off (default to pause)
+    }
+    if (this._state == "powered off") {
+      // Do command to power up.
+    }
+    if (this._state == "paused") {
+      // Do command to resume.
+    }
+  }
+}
 
 function MyApplet(metadata, orientation, panelHeight, instanceId) {
   this.settings = new Settings.AppletSettings(this, UUID, instanceId)
@@ -38,7 +80,7 @@ MyApplet.prototype = {
 
     try {
       this.set_applet_icon_name(ICON)
-      
+
       this.menuManager = new PopupMenu.PopupMenuManager(this)
       this.menu = new Applet.AppletPopupMenu(this, orientation)
       this.menuManager.addMenu(this.menu)
@@ -54,7 +96,7 @@ MyApplet.prototype = {
       global.logError(UUID + "::_init: " + e)
     }
   }
-  
+
   // configuration via context menu is automatically provided in Cinnamon 2.0+
 , settingsApiCheck: function() {
     const Config = imports.misc.config
@@ -78,7 +120,7 @@ MyApplet.prototype = {
   // determine which VM programs are installed
 , checkPrograms: function() {
     for (let i = 0; i < PROGRAMS.length; i++) {
-      let p = PROGRAMS[i] 
+      let p = PROGRAMS[i]
       INSTALLED_PROGRAMS[p] = false
       try {
         let [res, list, err, status] = GLib.spawn_command_line_sync("which " + p)
@@ -131,22 +173,50 @@ MyApplet.prototype = {
     if (!this.isInstalled(CMD_VBOX))
       return
 
-    let [res, list, err, status] = GLib.spawn_command_line_sync(CMD_VBOX_LIST)
+    let [res, list, err, status] = GLib.spawn_command_line_sync(CMD_VBOX_DETAILS)
+    let regex_name = /Name:  .+/g
+    // let names = regex_name.exec(list.toString())
+
+    global.log("list size: " + list.length)
+    // global.log("List: " + names.toString())
     if (list.length != 0) {
+      // let machines = list.toString().split("\n")
+      // // for (let i=0; i<machines.length; i++) {
+      // //   let names = regex_name.exec(machines)
+      // //   global.log("name: " + names)
+      // // }
+      // let names = regex_name.exec(machines)
+      // for (let i=0; i<names.length; i++) {
+      //   global.log("name: " + names[i])
+      // }
       let machines = list.toString().split("\n")
-      for (let i = 0; i < machines.length; i++) {
-        let machine = machines[i]
-        if (machine == "") continue
+      // let names = regex_name.exec(list.toString())
+      for (let i=0; i<machines.length; i+3) {
+        let status = machines[i+2].split(' (')[0]
+        global.log("Label: " + machines[i])
+        global.log("id: " + machines[i+1])
+        global.log("status: " + status)
+        let machine = new VirtualMachine(machines[i],machines[i+1],status)
         this.addVboxImage(machine)
       }
     }
+
+    // let [res, list, err, status] = GLib.spawn_command_line_sync(CMD_VBOX_LIST)
+    // if (list.length != 0) {
+    //   let machines = list.toString().split("\n")
+    //   for (let i = 0; i < machines.length; i++) {
+    //     let machine = machines[i]
+    //     if (machine == "") continue
+    //     this.addVboxImage(machine)
+    //   }
+    // }
   }
 
 , addVboxImage: function(instance) {
-    let info = instance.split('" {')
-    let name = info[0].replace('"', '')
-    let id = info[1].replace('}', '')
-    this.addLauncher(name, Lang.bind(this, function() { this.startVboxImage(id) }))
+    // let info = instance.split('" {')
+    // let name = info[0].replace('"', '')
+    // let id = info[1].replace('}', '')
+    this.addLauncher(instance.getLabel(), Lang.bind(this, function() { this.startVboxImage(instance.getId()) }))
   }
 
   // add menu items for all VMWare Player images
@@ -200,11 +270,11 @@ MyApplet.prototype = {
     }
     this.addUpdater()
   }
-  
+
 , startVboxImage: function(id) {
     Util.spawnCommandLine(CMD_VBOX_VM + id)
   }
-  
+
 , startVbox: function() {
     Util.spawnCommandLine(CMD_VBOX)
   }
@@ -223,7 +293,7 @@ MyApplet.prototype = {
     }
     this.menu.toggle()
   }
-  
+
 , onSwitchAutoUpdate: function() {
     if (!this[AUTOUPDATE]) {
       this.updateMenu() // Needed to make update button reappear if setting switched to off
